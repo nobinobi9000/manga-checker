@@ -17,17 +17,14 @@ def check_new_manga():
         history = json.load(f)
 
     updated = False
-    # 今日の日付を数値化 (例: 20260120)
-    today_num = datetime.now().strftime('%Y%m%d')
+    today = datetime.now()
+    today_num = today.strftime('%Y%m%d')
 
     for title_key, info in history.items():
-        # 1. 検索ワードの整理
         pure_title = title_key.replace(" 講談社", "").replace("　", " ").split()[0]
         author_name = info.get('author', '')
-        # 出版社情報がなければ空文字として扱う
         publisher_config = info.get('publisher', '')
         
-        # 2. 楽天ブックス「書籍検索API」へリクエスト
         url = "https://app.rakuten.co.jp/services/api/BooksBook/Search/20170404"
         params = {
             "applicationId": RAKUTEN_APP_ID,
@@ -35,10 +32,9 @@ def check_new_manga():
             "title": pure_title,
             "author": author_name,
             "sort": "-releaseDate",
-            "booksGenreId": "001001", # 漫画(コミック)
+            "booksGenreId": "001001",
             "hits": 15
         }
-        # 出版社が指定されている場合のみパラメータに追加
         if publisher_config:
             params["publisherName"] = publisher_config
         
@@ -46,7 +42,6 @@ def check_new_manga():
             res = requests.get(url, params=params, timeout=10)
             data = res.json()
             
-            # ヒットしない場合の再試行（タイトルをさらに絞る）
             if not data.get('Items') or data.get('count') == 0:
                 params["title"] = pure_title[:5]
                 res = requests.get(url, params=params, timeout=10)
@@ -63,66 +58,81 @@ def check_new_manga():
                 for item in items_list:
                     item_title = item.get('title', '')
                     if any(w in item_title for w in exclude_words): continue
-                    
-                    # 著者名チェック
                     target_a = author_name.replace(' ', '').replace('　', '')
                     item_a = item.get('author', '').replace(' ', '').replace('　', '')
                     if target_a not in item_a: continue
                     
-                    # 通常版か特装版かを分ける
                     if any(w in item_title for w in priority_exclude):
                         special_items.append(item)
                     else:
                         legit_items.append(item)
 
-                # 通常版を最優先。なければ特装版。
                 found_item = legit_items[0] if legit_items else (special_items[0] if special_items else None)
+                if not found_item: continue
 
-                if not found_item:
-                    print(f"⚠️ 条件不一致: {title_key}")
-                    continue
-
-                new_isbn = found_item.get('isbn')
+                new_isbn = str(found_item.get('isbn'))
                 raw_date = found_item.get('salesDate', '')
                 current_publisher = found_item.get('publisherName', '')
-                
-                # 日付から数字以外（「頃」など）を排除
                 sales_date_num = "".join(filter(str.isdigit, raw_date))
                 
+                # --- 通知・リマインドロジック ---
+                stored_isbn = str(info.get('isbn', '0'))
                 should_notify = False
-                
-                # --- 通知判定ロジック ---
-                # A. 発売日が不明な場合 → 取りこぼし防止のため通知
-                if not sales_date_num:
+                notify_type = ""
+
+                # 発売日までの日数を計算
+                days_left = None
+                if len(sales_date_num) == 8:
+                    try:
+                        target_dt = datetime.strptime(sales_date_num, '%Y%m%d')
+                        days_left = (target_dt - today).days + 1 # 当日を1日目とする
+                    except:
+                        pass
+
+                # 条件A: 新しいISBNが見つかった（初回・新刊） かつ 未来の日付
+                if new_isbn != stored_isbn and (not sales_date_num or sales_date_num > today_num):
                     should_notify = True
-                # B. 発売日が今日より先（未来）の場合
-                elif sales_date_num > today_num:
-                    # まだ通知していないISBNであれば通知
-                    if str(info.get('isbn')) != new_isbn:
+                    notify_type = "【新刊予約開始】"
+
+                # 条件B: すでに知っているISBNだが、特定の「〇日前」になった（リマインド）
+                elif days_left is not None:
+                    if days_left in [14, 7]:
                         should_notify = True
-                
+                        notify_type = f"【発売{days_left}日前リマインド】"
+
+                # 条件C: 発売日が不明な場合（取りこぼし防止）
+                elif not sales_date_num:
+                    should_notify = True
+                    notify_type = "【発売日不明・確認推奨】"
+
                 if should_notify:
-                    # JSONデータの更新（出版社情報がなければここで埋める）
-                    history[title_key]['isbn'] = new_isbn
-                    history[title_key]['salesDate'] = raw_date
-                    history[title_key]['last_notified'] = sales_date_num if sales_date_num else today_num
-                    history[title_key]['publisher'] = current_publisher # 出版社情報を補完
+                    history[title_key].update({
+                        'isbn': new_isbn,
+                        'salesDate': raw_date,
+                        'last_notified': sales_date_num if sales_date_num else today_num,
+                        'publisher': current_publisher
+                    })
                     updated = True
                     
                     amazon_url = f"https://www.amazon.co.jp/s?k={new_isbn}&tag={AMAZON_TRACKING_ID}"
-                    message = f"【新刊予約開始】\n『{found_item['title']}』\n著者：{found_item['author']}\n出版社：{current_publisher}\n発売日：{raw_date}\n\n▼Amazon\n{amazon_url}"
+                    message = f"{notify_type}\n『{found_item['title']}』\n著者：{found_item['author']}\n発売日：{raw_date}\n\n▼Amazon\n{amazon_url}"
                     
                     send_line(message)
-                    print(f"✅ 予約通知: {found_item['title']} ({raw_date})")
+                    print(f"✅ {notify_type}: {found_item['title']}")
+
+                elif new_isbn != stored_isbn:
+                    # 既刊(過去)のデータ更新のみ
+                    history[title_key].update({
+                        'isbn': new_isbn,
+                        'salesDate': raw_date,
+                        'last_notified': sales_date_num if sales_date_num else today_num,
+                        'publisher': current_publisher
+                    })
+                    updated = True
+                    print(f"⏭️ 既刊データ更新: {found_item['title']}")
+                
                 else:
-                    # 未来の日付でない（すでに発売されている）場合は更新のみ行う（通知はしない）
-                    if str(info.get('isbn')) == "0":
-                        history[title_key]['isbn'] = new_isbn
-                        history[title_key]['salesDate'] = raw_date
-                        history[title_key]['last_notified'] = sales_date_num if sales_date_num else today_num
-                        history[title_key]['publisher'] = current_publisher
-                        updated = True
-                    print(f"⏭️ 既刊のためスキップ: {found_item['title']} ({raw_date})")
+                    print(f"💤 通知済み/待機中: {found_item['title']} (あと{days_left}日)")
                     
             else:
                 print(f"❓ ヒットなし: {pure_title}")
