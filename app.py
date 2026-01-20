@@ -19,13 +19,12 @@ def check_new_manga():
     updated = False
     today = datetime.now().strftime('%Y%m%d')
 
-    for title, info in history.items():
-        # タイトルと著者名を組み合わせて検索精度を上げる
-        author = info.get('author', '')
-        search_query = f"{title} {author}".strip()
+    for title_key, info in history.items():
+        # 検索ワード：スペースがある場合は最初の単語だけを使う（例：「ブルーロック 講談社」→「ブルーロック」）
+        search_query = title_key.replace("　", " ").split()[0]
         encoded_query = urllib.parse.quote(search_query)
         
-        # 検索パラメータに「楽天ブックス」かつ「コミック」を指定（booksGenreId=001001）
+        # 楽天ブックスの「コミック」ジャンル（001001）を指定して検索
         url = f"https://app.rakuten.co.jp/services/api/BooksBook/Search/20170404?format=json&title={encoded_query}&applicationId={RAKUTEN_APP_ID}&sort=-releaseDate&booksGenreId=001001"
         
         try:
@@ -33,52 +32,53 @@ def check_new_manga():
             data = res.json()
             
             if data.get('Items'):
-                # 検索結果を上から見て、タイトルが一致するものを探す
+                target_author = info.get('author', '')
                 found_item = None
+                
+                # 検索結果（最大30件）の中から、著者名が一致するものを探す
                 for entry in data['Items']:
                     item = entry['Item']
-                    # 取得したタイトルに、検索したいマンガ名が含まれているかチェック
-                    # (例: 「ブルーロック」が「ブルーロック 32巻」に含まれるか)
-                    if title.split()[0] in item['title']:
+                    # 著者名が含まれているかチェック
+                    if target_author in item.get('author', ''):
                         found_item = item
                         break
                 
                 if not found_item:
-                    print(f"⚠️ 検索結果に一致なし（他作品除外）: {title}")
+                    print(f"⚠️ 著者不一致によりスキップ: {title_key}")
                     continue
 
                 item = found_item
                 new_isbn = item.get('isbn')
                 raw_date = item.get('salesDate', '')
                 
-                # 日付の比較用クリーニング
+                # 日付の比較
                 sales_date_clean = raw_date.replace('年', '').replace('月', '').replace('日', '').replace('頃', '').strip()
                 last_notified = str(info.get('last_notified', '0'))
                 
                 # 通知条件: 初回(ISBNが0) または 新しい発売日が検出された場合
                 if str(info.get('isbn')) == "0" or (sales_date_clean and sales_date_clean > last_notified):
-                    history[title]['isbn'] = new_isbn
-                    history[title]['salesDate'] = raw_date
-                    history[title]['last_notified'] = sales_date_clean
+                    history[title_key]['isbn'] = new_isbn
+                    history[title_key]['salesDate'] = raw_date
+                    history[title_key]['last_notified'] = sales_date_clean
                     updated = True
                     
                     amazon_url = f"https://www.amazon.co.jp/s?k={new_isbn}&tag={AMAZON_TRACKING_ID}"
-                    message = f"【新刊情報】\n『{item['title']}』\n著者：{item['author']}\n発売日：{raw_date}\n\n▼Amazon\n{amazon_url}"
+                    message = f"\n【新刊情報】\n『{item['title']}』\n著者：{item['author']}\n発売日：{raw_date}\n\n▼Amazon\n{amazon_url}"
                     
+                    # LINE Notifyへ送信
                     send_line(message)
                     print(f"✅ 通知送信: {item['title']}")
             else:
-                print(f"⚠️ ヒットなし: {title}")
+                print(f"❓ ヒットなし: {search_query}")
                 
         except Exception as e:
-            print(f"‼️ エラー ({title}): {e}")
+            print(f"‼️ エラー ({title_key}): {e}")
 
     if updated:
         with open('history.json', 'w', encoding='utf-8') as f:
             json.dump(history, f, ensure_ascii=False, indent=4)
 
 def send_line(message):
-    # LINE Notify 形式に変更 (もとのコードがBroadcast用だったので修正)
     url = "https://notify-api.line.me/api/notify"
     headers = {"Authorization": f"Bearer {LINE_NOTIFY_TOKEN}"}
     payload = {"message": message}
