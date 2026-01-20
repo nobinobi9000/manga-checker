@@ -2,7 +2,7 @@ name: Daily Manga Check
 
 on:
   schedule:
-    # 毎日23:00(日本時間 翌朝8:00)に実行
+    # 毎日23:00(UTC) → 日本時間 朝8:00に実行
     - cron: '0 23 * * *'
   workflow_dispatch: # 手動実行ボタンを出す設定
 
@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 履歴ファイルを書き換える権限
+      contents: write # history.jsonを書き換えるために必要
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,7 +27,9 @@ jobs:
 
       - name: Run script
         env:
-          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          # ここでPythonコード側の「os.environ.get」の名前と合わせます
+          RAKUTEN_APP_ID: ${{ secrets.RAKUTEN_APP_ID }}
+          LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
         run: python app.py
 
       - name: Commit and push if history.json changed
@@ -35,4 +37,8 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add history.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update history.json [skip ci]" && git push)
+          # 変更がある場合のみコミットしてプッシュ
+          if ! git diff --cached --exit-code --quiet; then
+            git commit -m "Update history.json [skip ci]"
+            git push
+          fi
