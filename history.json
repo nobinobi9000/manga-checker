@@ -24,10 +24,11 @@
         "last_notified": "20251003"
     },
     "トリリオンゲーム": {
-        "isbn": "0",
+        "isbn": "9784098636624",
         "author": "池上遼一",
         "salesDate": "2026年01月30日",
-        "last_notified": "20260130"
+        "last_notified": "20260130",
+        "publisher": "小学館"
     },
     "ドラフトキング": {
         "isbn": "9784088941349",
@@ -84,10 +85,11 @@
         "last_notified": "20260209"
     },
     "追い出された万能職に新しい人生が始まる": {
-        "isbn": "0",
+        "isbn": "9784434359507",
         "author": "宇崎鷹丸",
-        "salesDate": "",
-        "last_notified": ""
+        "salesDate": "2025年06月18日頃",
+        "last_notified": "20250618",
+        "publisher": "アルファポリス"
     },
     "盤上のオリオン": {
         "isbn": "9784065419472",
@@ -108,9 +110,10 @@
         "last_notified": "20260302"
     },
     "薬屋のひとりごと": {
-        "isbn": "0",
+        "isbn": "9784091582089",
         "author": "倉田三ノ路",
-        "salesDate": "",
-        "last_notified": ""
+        "salesDate": "2025年12月19日",
+        "last_notified": "20251219",
+        "publisher": "小学館"
     }
 }
