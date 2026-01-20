@@ -1,40 +1,46 @@
 import os
 import requests
+import json
 
-# Secretsから読み込み（前後の空白を完全に除去）
+# GitHub Secretsから172文字の「チャネルアクセストークン（長期）」を読み込む
 TOKEN = os.environ.get('LINE_NOTIFY_TOKEN', '').strip()
 
-def test():
-    print("--- LINE通知 診断開始 ---")
-    print(f"Tokenの長さ: {len(TOKEN)} 文字")
+def test_messaging_api():
+    print("--- LINE Messaging API 診断開始 ---")
+    print(f"トークン長: {len(TOKEN)} 文字")
     
-    # LINE Notify 公式エンドポイント
-    url = "https://notify-api.line.me/api/notify"
+    # 宛先URL（公式アカウントの全登録者にメッセージを送るエンドポイント）
+    url = "https://api.line.me/v2/bot/message/broadcast"
     
     headers = {
+        "Content-Type": "application/json",
         "Authorization": f"Bearer {TOKEN}"
     }
+    
+    # 送信するメッセージ内容
     payload = {
-        "message": "GitHub Actionsからのテスト通知です。これが届いたら成功です！"
+        "messages": [
+            {
+                "type": "text",
+                "text": "テスト通知です！このメッセージが届けば、Messaging APIの設定は正常です。"
+            }
+        ]
     }
 
     try:
-        # タイムアウトを設定し、POSTで送信
-        res = requests.post(url, headers=headers, data=payload, timeout=10)
+        # JSON形式でPOST送信
+        res = requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
         
         print(f"HTTPステータス: {res.status_code}")
+        print(f"レスポンス内容: {res.text}")
         
         if res.status_code == 200:
-            print("✅ 成功！LINEを確認してください。")
-        elif res.status_code == 401:
-            print("❌ 認証エラー: トークンが無効です。LINE Notifyで再発行してください。")
-        elif res.status_code == 405:
-            print("❌ メソッドエラー: URLが間違っている可能性があります。")
+            print("✅ 成功！LINE公式アカウントからメッセージが届いているか確認してください。")
         else:
-            print(f"⚠️ その他のエラー: {res.text}")
+            print(f"❌ エラー: ステータス {res.status_code}。トークンが正しいか、LINE Developersの設定を確認してください。")
 
     except Exception as e:
-        print(f"‼️ 通信自体に失敗しました: {e}")
+        print(f"‼️ 通信エラー: {e}")
 
 if __name__ == "__main__":
-    test()
+    test_messaging_api()
