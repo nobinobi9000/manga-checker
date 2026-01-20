@@ -33,7 +33,10 @@ def check_new_manga():
                 sales_date = item['salesDate']
                 
                 # 未登録のISBNが見つかった場合、または新刊フラグが立っている場合
-                if info.get('isbn') == "0" or (info.get('salesDate') and info['salesDate'] > info.get('last_notified', '')):
+               found_isbn = item.get('isbn', '0')
+                # 1. 今のISBNが"0"である
+                # 2. または、楽天で見つけた発売日が前回の通知日より新しい
+                if info.get('isbn') == "0" or (sales_date and sales_date > info.get('last_notified', '')):
                     history[title]['isbn'] = new_isbn
                     history[title]['salesDate'] = sales_date
                     history[title]['last_notified'] = today
@@ -58,3 +61,4 @@ def send_line(message):
 
 if __name__ == "__main__":
     check_new_manga()
+
