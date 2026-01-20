@@ -26,7 +26,7 @@ jobs:
         env:
           RAKUTEN_APP_ID: ${{ secrets.RAKUTEN_APP_ID }}
           LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
-        run: python debug_line.py
+        run: python app.py
 
       - name: Commit and push
         run: |
