@@ -6,10 +6,11 @@
         "last_notified": "20260116"
     },
     "WIND BREAKER 講談社": {
-        "isbn": "9784065398029",
+        "isbn": "9784065418963",
         "author": "にいさとる",
         "salesDate": "2025年12月09日",
-        "last_notified": "20251209"
+        "last_notified": "20251209",
+        "publisher": "講談社"
     },
     "DEAR BOYS": {
         "isbn": "9784065412510",
@@ -61,10 +62,11 @@
         "last_notified": "20251209"
     },
     "女の園の星": {
-        "isbn": "9784396750541",
+        "isbn": "9784396750534",
         "author": "和山やま",
         "salesDate": "2024年10月08日",
-        "last_notified": "20241008"
+        "last_notified": "20241008",
+        "publisher": "祥伝社"
     },
     "田んぼで拾った女騎士、田舎で俺の嫁だと思われている": {
         "isbn": "9784065377598",
