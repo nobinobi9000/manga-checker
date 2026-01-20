@@ -24,7 +24,7 @@
         "last_notified": "20251003"
     },
     "トリリオンゲーム": {
-        "isbn": "9784098636624",
+        "isbn": "0",
         "author": "池上遼一",
         "salesDate": "2026年01月30日",
         "last_notified": "20260130"
@@ -108,9 +108,9 @@
         "last_notified": "20260302"
     },
     "薬屋のひとりごと": {
-        "isbn": "9784099432218",
+        "isbn": "0",
         "author": "倉田三ノ路",
-        "salesDate": "2025年12月19日頃",
-        "last_notified": "20251219"
+        "salesDate": "",
+        "last_notified": ""
     }
 }
