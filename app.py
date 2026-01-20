@@ -10,13 +10,6 @@ LINE_NOTIFY_TOKEN = os.environ.get('LINE_NOTIFY_TOKEN', '').strip()
 AMAZON_TRACKING_ID = "nobinobi9000-22"
 
 def check_new_manga():
-    # --- デバッグ情報 (ここが重要) ---
-    if not RAKUTEN_APP_ID:
-        print("❌ 警告: RAKUTEN_APP_ID が設定されていません。")
-    else:
-        # IDの最初と最後、そして文字数だけを表示して安全に確認
-        print(f"📊 デバッグ: 使用中のID={RAKUTEN_APP_ID[:4]}...{RAKUTEN_APP_ID[-4:]} (長さ: {len(RAKUTEN_APP_ID)}文字)")
-
     if not os.path.exists('history.json'): return
     with open('history.json', 'r', encoding='utf-8') as f:
         history = json.load(f)
@@ -25,22 +18,24 @@ def check_new_manga():
     today = datetime.now().strftime('%Y%m%d')
 
     for title, info in history.items():
-        # ヒット率重視：タイトルを簡略化して検索
-        search_query = title.split()[0]
+        # 【原点回帰】余計な加工をせず、タイトルの最初の区切りまでで検索
+        # 1月17日の成功時は、このシンプルさが鍵でした
+        search_query = title.replace("　", " ").split()[0]
         encoded_query = urllib.parse.quote(search_query)
         
-        url = f"https://app.rakuten.co.jp/services/api/BooksBook/Search/20170404?format=json&keyword={encoded_query}&applicationId={RAKUTEN_APP_ID}&booksGenreId=001001"
+        # 001001(漫画)に限定せず、まずは「本」全体から探す
+        url = f"https://app.rakuten.co.jp/services/api/BooksBook/Search/20170404?format=json&keyword={encoded_query}&applicationId={RAKUTEN_APP_ID}&sort=sales"
         
         try:
             res = requests.get(url)
             data = res.json()
             
-            # ヒットすれば成功
             if data.get('items'):
                 item = data['items'][0]['Item']
                 new_isbn = item.get('isbn')
                 sales_date = item.get('salesDate')
                 
+                # ISBNが"0"、または発売日が新しい場合に更新
                 if str(info.get('isbn')) == "0" or (sales_date and sales_date > info.get('last_notified', '')):
                     history[title]['isbn'] = new_isbn
                     history[title]['salesDate'] = sales_date
@@ -48,14 +43,11 @@ def check_new_manga():
                     updated = True
                     
                     amazon_url = f"https://www.amazon.co.jp/s?k={new_isbn}&tag={AMAZON_TRACKING_ID}"
-                    message = f"\n【新刊】『{item['title']}』\n著：{item['author']}\n発売日：{sales_date}\n{amazon_url}"
+                    message = f"\n【通知】『{item['title']}』\n発売日：{sales_date}\n{amazon_url}"
                     send_line(message)
-                    print(f"✅ ヒット成功: {title}")
+                    print(f"✅ 成功: {title}")
             else:
-                # ヒットしない場合、楽天からの生のエラーメッセージがあれば出す
-                error_msg = data.get('error_description', 'ヒット0件（ID無効の可能性大）')
-                print(f"⚠️ 検索失敗({search_query}): {error_msg}")
-                
+                print(f"⚠️ ヒットなし: {search_query}")
         except Exception as e:
             print(f"‼️ エラー: {e}")
 
