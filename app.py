@@ -5,8 +5,8 @@ import urllib.parse
 from datetime import datetime
 
 # --- 設定エリア ---
-RAKUTEN_APP_ID = os.environ.get('1024341657340856332')
-LINE_NOTIFY_TOKEN = os.environ.get('YvZ7nXI77YYo55pNu6ZlCHSWsNda8a8cd+g/wKLk82DvYnjlu3Nk9AD6tCb5X4iPiubShOgQL4YscuRV0wSHJ7HdLLVTRgWlXmQMDG7QIPzaaMoAQCoUjCcuBSygt35dA7NpVfzLuRklr1ns3rWGCQdB04t89/1O/w1cDnyilFU=')
+RAKUTEN_APP_ID = os.environ.get('RAKUTEN_APP_ID')
+LINE_NOTIFY_TOKEN = os.environ.get('LINE_NOTIFY_TOKEN')
 AMAZON_TRACKING_ID = "nobinobi9000-22"
 
 def check_new_manga():
