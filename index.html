@@ -107,31 +107,38 @@
         }
 
         async function register(item) {
-            await callGas({ action: 'register', data: { ...item, userId: userId } });
-            // alertを削除し、直接タブを切り替える
-            showTab('list');
+            const res = await callGas({ action: 'register', data: { ...item, userId: userId } });
+            
+            // 【修正】重複チェックの結果で分岐
+            if (res.status === "duplicate") {
+                alert("この作品は既にマイリストに登録されています。");
+            } else {
+                showTab('list');
+            }
         }
 
         async function loadMyList() {
             const list = await callGas({ action: 'getList', userId: userId }, 'GET');
             const container = document.getElementById('my-list');
             container.innerHTML = list.map(item => {
-                // Supabaseのカラム名に合わせて image_url を参照（GAS側の保存名によります）
+                // 【修正】image_url を確実に参照し、表示する
                 const img = item.image_url ? item.image_url.replace('http://', 'https://') : '';
                 return `
                 <div class="manga-card ${item.is_reserved ? 'is-reserved' : ''}">
                     ${img ? `<img src="${img}" class="manga-image">` : ''}
                     <div class="manga-info">
                         <p><strong>${item.title_key}</strong></p>
-                        <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
-                            ${item.is_reserved ? '予約解除' : '予約する'}
-                        </button>
-                        <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
+                        <p class="is-size-7">${item.author || ''}</p>
+                        <div class="mt-2">
+                            <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
+                                ${item.is_reserved ? '予約解除' : '予約する'}
+                            </button>
+                            <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
+                        </div>
                     </div>
                 </div>`;
             }).join('');
         }
-
         async function toggle(id, current) {
             await callGas({ action: 'toggle', id: id, newStatus: !current });
             loadMyList();
