@@ -9,7 +9,7 @@
     <style>
         .manga-card { display: flex; align-items: flex-start; margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; background: white; }
         .manga-info { flex-grow: 1; }
-        .manga-image { width: 70px; height: auto; margin-right: 15px; border: 1px solid #eee; }
+        .manga-image { width: 70px; height: auto; margin-right: 15px; border: 1px solid #eee; object-fit: cover; }
         .is-reserved { background-color: #fff3cd; }
         .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; }
         .tab-content { display: none; }
@@ -81,10 +81,7 @@
             document.getElementById('loading').style.display = 'flex';
             try {
                 let url = GAS_API_URL;
-                let options = { 
-                    method: method,
-                    mode: 'cors' // CORSを明示
-                };
+                let options = { method: method, mode: 'cors' };
                 if (method === 'POST') {
                     options.body = JSON.stringify(params);
                 } else {
@@ -102,82 +99,28 @@
         }
 
         async function search() {
-            const titleInput = document.getElementById('search-input');
-            const title = titleInput.value;
+            const title = document.getElementById('search-input').value;
             if(!title) return;
-            
             const results = await callGas({ action: 'search', title: title });
             const container = document.getElementById('search-results');
-            
             if (!results || results.length === 0) {
                 container.innerHTML = '<p class="has-text-grey">見つかりませんでした</p>';
                 return;
             }
-
             container.innerHTML = results.map(item => {
-                const secureImageUrl = item.imageUrl ? item.imageUrl.replace('http://', 'https://') : '';
+                const img = item.imageUrl ? item.imageUrl.replace('http://', 'https://') : '';
                 return `
                 <div class="manga-card">
-                    ${secureImageUrl ? `<img src="${secureImageUrl}" class="manga-image" alt="cover">` : ''}
+                    ${img ? `<img src="${img}" class="manga-image">` : ''}
                     <div class="manga-info">
                         <p><strong>${item.title}</strong></p>
                         <p class="is-size-7">${item.author || ''}</p>
                         <button class="button is-small is-link mt-2" onclick='register(${JSON.stringify(item).replace(/'/g, "&apos;")})'>追加</button>
                     </div>
-                </div>
-                `;
+                </div>`;
             }).join('');
         }
 
         async function register(item) {
             await callGas({ action: 'register', data: { ...item, userId: userId } });
-            alert("登録しました");
-            showTab('list');
-        }
-
-        async function loadMyList() {
-            if(!userId) return;
-            const list = await callGas({ action: 'getList', userId: userId }, 'GET');
-            const container = document.getElementById('my-list');
-            
-            if (!list || list.length === 0) {
-                container.innerHTML = '<p class="has-text-grey">登録されたマンガはありません</p>';
-                return;
-            }
-
-            container.innerHTML = list.map(item => `
-                <div class="manga-card ${item.is_reserved ? 'is-reserved' : ''}">
-                    <div class="manga-info">
-                        <p><strong>${item.title_key}</strong></p>
-                        <p class="is-size-7">${item.author || ''}</p>
-                        <div class="mt-2">
-                            <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
-                                ${item.is_reserved ? '予約解除' : '予約する'}
-                            </button>
-                            <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        async function toggle(id, current) {
-            await callGas({ action: 'toggle', id: id, newStatus: !current });
-            loadMyList();
-        }
-
-        async function remove(id) {
-            if(confirm("削除しますか？")) {
-                await callGas({ action: 'delete', id: id });
-                loadMyList();
-            }
-        }
-
-        // イベントリスナーの登録（onclickより確実）
-        document.getElementById('search-button').addEventListener('click', search);
-
-        // 実行開始
-        init();
-    </script>
-</body>
-</html>
+            // alertを
