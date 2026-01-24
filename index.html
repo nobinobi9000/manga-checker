@@ -100,7 +100,8 @@
                     ${img ? `<img src="${img}" class="manga-image">` : ''}
                     <div class="manga-info">
                         <p><strong>${item.title}</strong> (${item.author})</p>
-                        <button class="button is-small is-link" onclick='register(${JSON.stringify(item)})'>追加</button>
+                        <p class="is-size-7 has-text-danger">発売日: ${item.salesDate || '不明'}</p>
+                        <button class="button is-small is-link mt-2" onclick='register(${JSON.stringify(item)})'>追加</button>
                     </div>
                 </div>`;
             }).join('');
@@ -109,7 +110,6 @@
         async function register(item) {
             const res = await callGas({ action: 'register', data: { ...item, userId: userId } });
             if (res.status === "duplicate") {
-                // 文言の先頭にアプリ名をいれることで、どこからの通知か分かりやすくします
                 alert("【マンガ新刊チェッカー】\nこの作品はすでにマイリストに登録されています。");
             } else {
                 showTab('list');
@@ -126,11 +126,13 @@
                     ${img ? `<img src="${img}" class="manga-image">` : ''}
                     <div class="manga-info">
                         <p><strong>${item.title_key}</strong></p>
-                        <p class="is-size-7">${item.author || ''}</p>
+                        <p class="is-size-7">発売日: ${item.sales_date || '不明'}</p>
+                        <p class="is-size-7">所有: ${item.last_purchased_vol || 0}巻</p>
                         <div class="mt-2">
                             <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
                                 ${item.is_reserved ? '予約済みを解除' : '予約済みにする'}
                             </button>
+                            <button class="button is-small is-success" onclick="markAsPurchased('${item.id}')">購入済み</button>
                             <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
                         </div>
                     </div>
@@ -141,6 +143,14 @@
         async function toggle(id, current) {
             await callGas({ action: 'toggle', id: id, newStatus: !current });
             loadMyList();
+        }
+
+        async function markAsPurchased(id) {
+            const vol = prompt("何巻まで購入しましたか？（数字のみ入力）");
+            if (vol !== null && !isNaN(vol) && vol !== "") {
+                await callGas({ action: 'purchase', id: id, vol: parseInt(vol) });
+                loadMyList();
+            }
         }
 
         async function remove(id) {
