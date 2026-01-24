@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マンガ登録</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        .manga-card { margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; }
+        .is-reserved { background-color: #fff3cd; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading-overlay"><p>処理中...</p></div>
+    <section class="section">
+        <div class="container">
+            <h1 class="title is-4">マンガ新刊チェッカー</h1>
+            
+            <div class="field has-addons">
+                <div class="control is-expanded">
+                    <input id="search-input" class="input" type="text" placeholder="作品名を入力">
+                </div>
+                <div class="control">
+                    <button class="button is-primary" onclick="search()">検索</button>
+                </div>
+            </div>
+
+            <div id="search-results"></div>
+            <hr>
+            <h2 class="subtitle is-5">登録済みリスト</h2>
+            <div id="my-list"></div>
+        </div>
+    </section>
+
+    <script>
+        const LIFF_ID = "2008959676-hW7rllQ0";
+        const GAS_API_URL = "ここにあなたの新しいGASデプロイURLを貼る";
+        let userId = "";
+
+        async function init() {
+            await liff.init({ liffId: LIFF_ID });
+            if (!liff.isLoggedIn()) {
+                liff.login();
+            } else {
+                userId = liff.getContext().userId;
+                loadMyList();
+            }
+        }
+
+        async function callGas(params, method = 'POST') {
+            document.getElementById('loading').style.display = 'flex';
+            try {
+                let url = GAS_API_URL;
+                let options = { method: method };
+                
+                if (method === 'POST') {
+                    options.body = JSON.stringify(params);
+                } else {
+                    const query = new URLSearchParams(params).toString();
+                    url += `?${query}`;
+                }
+
+                const res = await fetch(url, options);
+                return await res.json();
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        async function search() {
+            const title = document.getElementById('search-input').value;
+            const results = await callGas({ action: 'search', title: title });
+            const container = document.getElementById('search-results');
+            container.innerHTML = results.map(item => `
+                <div class="manga-card">
+                    <p><strong>${item.title}</strong> (${item.author})</p>
+                    <button class="button is-small is-link" onclick='register(${JSON.stringify(item)})'>追加</button>
+                </div>
+            `).join('');
+        }
+
+        async function register(item) {
+            await callGas({ action: 'register', data: { ...item, userId: userId } });
+            alert("登録しました");
+            loadMyList();
+        }
+
+        async function loadMyList() {
+            const list = await callGas({ action: 'getList', userId: userId }, 'GET');
+            const container = document.getElementById('my-list');
+            container.innerHTML = list.map(item => `
+                <div class="manga-card ${item.is_reserved ? 'is-reserved' : ''}">
+                    <p><strong>${item.title_key}</strong></p>
+                    <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
+                        ${item.is_reserved ? '予約解除' : '予約する'}
+                    </button>
+                    <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
+                </div>
+            `).join('');
+        }
+
+        async function toggle(id, current) {
+            await callGas({ action: 'toggle', id: id, newStatus: !current });
+            loadMyList();
+        }
+
+        async function remove(id) {
+            if(confirm("削除しますか？")) {
+                await callGas({ action: 'delete', id: id });
+                loadMyList();
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
