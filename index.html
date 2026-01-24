@@ -129,10 +129,12 @@
                         <p class="is-size-7">発売日: ${item.sales_date || '不明'}</p>
                         <p class="is-size-7">所有: ${item.last_purchased_vol || 0}巻</p>
                         <div class="mt-2">
+                            <button class="button is-small is-success" onclick="markAsPurchased('${item.id}')">所有巻数入力</button>
+                            
                             <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
                                 ${item.is_reserved ? '予約済みを解除' : '予約済みにする'}
                             </button>
-                            <button class="button is-small is-success" onclick="markAsPurchased('${item.id}')">購入済み</button>
+    
                             <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
                         </div>
                     </div>
