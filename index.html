@@ -21,7 +21,6 @@
     <section class="section">
         <div class="container">
             <h1 class="title is-4">マンガ新刊チェッカー</h1>
-            
             <div class="tabs is-centered is-boxed">
                 <ul>
                     <li id="tab-search-btn" class="is-active"><a onclick="showTab('search')">マンガ検索</a></li>
@@ -42,7 +41,16 @@
             </div>
 
             <div id="tab-list" class="tab-content">
-                <h2 class="subtitle is-5">登録済みリスト</h2>
+                <div class="is-flex is-justify-content-space-between is-align-items-center mb-3">
+                    <h2 class="subtitle is-5 mb-0">登録済みリスト</h2>
+                    <div class="select is-small">
+                        <select id="sort-order" onchange="loadMyList()">
+                            <option value="created_at">登録順</option>
+                            <option value="title_key">名前順</option>
+                            <option value="sales_date">発売日が近い順</option>
+                        </select>
+                    </div>
+                </div>
                 <div id="my-list"></div>
             </div>
         </div>
@@ -50,7 +58,7 @@
 
     <script>
         const LIFF_ID = "2008959676-hW7rllQ0";
-        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0gQWC81jZ1tEKx6oZVk3Fd0Z6EveuRDzSBYNMZ-tIm0lYxceWFiR78PMt5MUNF9FJcQ/exec";
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyqGjbR2GC5AI6I7V83NHoziD4IXQghURQIERw3LGBKNYsNYHZCoWqARssmq94rtdxL2g/exec";
         let userId = "";
 
         function showTab(tabName) {
@@ -117,7 +125,26 @@
         }
 
         async function loadMyList() {
-            const list = await callGas({ action: 'getList', userId: userId }, 'GET');
+            let list = await callGas({ action: 'getList', userId: userId }, 'GET');
+            const sortVal = document.getElementById('sort-order').value;
+            
+            // 現在の日付を取得 (YYYYMMDD形式)
+            const now = new Date();
+            const nowStr = now.getFullYear() + ('0' + (now.getMonth() + 1)).slice(-2) + ('0' + now.getDate()).slice(-2);
+
+            if (sortVal === 'title_key') {
+                list.sort((a, b) => a.title_key.localeCompare(b.title_key, 'ja'));
+            } else if (sortVal === 'sales_date') {
+                list.sort((a, b) => {
+                    const dateA = (a.sales_date || "0").replace(/[^0-9]/g, "");
+                    const dateB = (b.sales_date || "0").replace(/[^0-9]/g, "");
+                    // 未来の日付を優先
+                    if (dateA >= nowStr && dateB < nowStr) return -1;
+                    if (dateA < nowStr && dateB >= nowStr) return 1;
+                    return dateA.localeCompare(dateB);
+                });
+            }
+
             const container = document.getElementById('my-list');
             container.innerHTML = list.map(item => {
                 const img = item.image_url ? item.image_url.replace('http://', 'https://') : '';
@@ -130,11 +157,9 @@
                         <p class="is-size-7">所有: ${item.last_purchased_vol || 0}巻</p>
                         <div class="mt-2">
                             <button class="button is-small is-success" onclick="markAsPurchased('${item.id}')">所有巻数入力</button>
-                            
                             <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
                                 ${item.is_reserved ? '予約済みを解除' : '予約済みにする'}
                             </button>
-    
                             <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
                         </div>
                     </div>
