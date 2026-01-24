@@ -3,34 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>マンガ登録</title>
+    <title>マンガ新刊チェッカー</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        .manga-card { margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; }
+        /* 画像表示とカードのレイアウト調整 */
+        .manga-card { display: flex; align-items: flex-start; margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; background: white; }
+        .manga-info { flex-grow: 1; }
+        .manga-image { width: 70px; height: auto; margin-right: 15px; border: 1px solid #eee; }
         .is-reserved { background-color: #fff3cd; }
         .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; }
+        /* タブコンテンツの表示・非表示 */
+        .tab-content { display: none; }
+        .tab-content.is-active { display: block; }
     </style>
 </head>
 <body>
     <div id="loading" class="loading-overlay"><p>処理中...</p></div>
+    
     <section class="section">
         <div class="container">
             <h1 class="title is-4">マンガ新刊チェッカー</h1>
             
-            <div class="field has-addons">
-                <div class="control is-expanded">
-                    <input id="search-input" class="input" type="text" placeholder="作品名を入力">
-                </div>
-                <div class="control">
-                    <button class="button is-primary" onclick="search()">検索</button>
-                </div>
+            <div class="tabs is-centered is-boxed">
+                <ul>
+                    <li id="tab-search-btn" class="is-active"><a onclick="showTab('search')">マンガ検索</a></li>
+                    <li id="tab-list-btn"><a onclick="showTab('list')">マイリスト</a></li>
+                </ul>
             </div>
 
-            <div id="search-results"></div>
-            <hr>
-            <h2 class="subtitle is-5">登録済みリスト</h2>
-            <div id="my-list"></div>
+            <div id="tab-search" class="tab-content is-active">
+                <div class="field has-addons">
+                    <div class="control is-expanded">
+                        <input id="search-input" class="input" type="text" placeholder="作品名を入力">
+                    </div>
+                    <div class="control">
+                        <button class="button is-primary" onclick="search()">検索</button>
+                    </div>
+                </div>
+                <div id="search-results"></div>
+            </div>
+
+            <div id="tab-list" class="tab-content">
+                <h2 class="subtitle is-5">登録済みリスト</h2>
+                <div id="my-list"></div>
+            </div>
         </div>
     </section>
 
@@ -38,6 +55,17 @@
         const LIFF_ID = "2008959676-hW7rllQ0";
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyqGjbR2GC5AI6I7V83NHoziD4IXQghURQIERw3LGBKNYsNYHZCoWqARssmq94rtdxL2g/exec";
         let userId = "";
+
+        // タブ切り替えロジック
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('is-active'));
+            document.querySelectorAll('.tabs li').forEach(el => el.classList.remove('is-active'));
+            
+            document.getElementById(`tab-${tabName}`).classList.add('is-active');
+            document.getElementById(`tab-${tabName}-btn`).classList.add('is-active');
+            
+            if (tabName === 'list') loadMyList();
+        }
 
         async function init() {
             await liff.init({ liffId: LIFF_ID });
@@ -54,14 +82,12 @@
             try {
                 let url = GAS_API_URL;
                 let options = { method: method };
-                
                 if (method === 'POST') {
                     options.body = JSON.stringify(params);
                 } else {
                     const query = new URLSearchParams(params).toString();
                     url += `?${query}`;
                 }
-
                 const res = await fetch(url, options);
                 return await res.json();
             } finally {
@@ -71,49 +97,4 @@
 
         async function search() {
             const title = document.getElementById('search-input').value;
-            const results = await callGas({ action: 'search', title: title });
-            const container = document.getElementById('search-results');
-            container.innerHTML = results.map(item => `
-                <div class="manga-card">
-                    <p><strong>${item.title}</strong> (${item.author})</p>
-                    <button class="button is-small is-link" onclick='register(${JSON.stringify(item)})'>追加</button>
-                </div>
-            `).join('');
-        }
-
-        async function register(item) {
-            await callGas({ action: 'register', data: { ...item, userId: userId } });
-            alert("登録しました");
-            loadMyList();
-        }
-
-        async function loadMyList() {
-            const list = await callGas({ action: 'getList', userId: userId }, 'GET');
-            const container = document.getElementById('my-list');
-            container.innerHTML = list.map(item => `
-                <div class="manga-card ${item.is_reserved ? 'is-reserved' : ''}">
-                    <p><strong>${item.title_key}</strong></p>
-                    <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
-                        ${item.is_reserved ? '予約解除' : '予約する'}
-                    </button>
-                    <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
-                </div>
-            `).join('');
-        }
-
-        async function toggle(id, current) {
-            await callGas({ action: 'toggle', id: id, newStatus: !current });
-            loadMyList();
-        }
-
-        async function remove(id) {
-            if(confirm("削除しますか？")) {
-                await callGas({ action: 'delete', id: id });
-                loadMyList();
-            }
-        }
-
-        init();
-    </script>
-</body>
-</html>
+            const results = await callGas({ action: 'search', title: title
