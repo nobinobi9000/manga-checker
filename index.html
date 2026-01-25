@@ -14,8 +14,9 @@
         .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; }
         .tab-content { display: none; }
         .tab-content.is-active { display: block; }
-        /* ボタンの間隔調整 */
         .button-group { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+        /* ソートセレクトボックスのスタイル */
+        .sort-container { margin-bottom: 1rem; display: flex; align-items: center; justify-content: flex-end; }
     </style>
 </head>
 <body>
@@ -45,21 +46,31 @@
             </div>
 
             <div id="content-list" class="tab-content">
+                <div class="sort-container">
+                    <span class="is-size-7 mr-2">並び替え:</span>
+                    <div class="select is-small">
+                        <select id="sort-order" onchange="renderList()">
+                            <option value="release">発売日が近い順</option>
+                            <option value="name">名前順</option>
+                            <option value="newest">登録順</option>
+                        </select>
+                    </div>
+                </div>
                 <div id="my-list"></div>
             </div>
         </div>
     </section>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbw0gQWC81jZ1tEKx6oZVk3Fd0Z6EveuRDzSBYNMZ-tIm0lYxceWFiR78PMt5MUNF9FJcQ/exec"; // ★GASのURLをここに！
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbw0gQWC81jZ1tEKx6oZVk3Fd0Z6EveuRDzSBYNMZ-tIm0lYxceWFiR78PMt5MUNF9FJcQ/exec"; // ★要書き換え
         let userProfile = null;
+        let cachedList = []; // ソートのためにリストを保持
 
-        // アフィリエイトID設定
         const AMAZON_ID = "nobinobi9000-22";
         const RAKUTEN_ID = "501ad036.07885280.501ad037.06e37a49";
 
         async function init() {
-            await liff.init({ liffId: "2008959676-hW7rllQ0" }); // ★LIFF IDをここに！
+            await liff.init({ liffId: "2008959676-hW7rllQ0" }); // ★要書き換え
             if (!liff.isLoggedIn()) {
                 liff.login();
             } else {
@@ -78,10 +89,7 @@
 
         async function callGas(payload) {
             document.getElementById('loading').style.display = 'flex';
-            const res = await fetch(GAS_URL, {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
+            const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
             document.getElementById('loading').style.display = 'none';
             return await res.json();
         }
@@ -104,22 +112,61 @@
         }
 
         async function register(item) {
-            const data = { userId: userProfile.userId, ...item };
-            const res = await callGas({ action: 'register', data: data });
-            if (res.status === 'duplicate') {
-                alert("既に登録されています");
-            } else {
-                alert("登録しました");
-            }
+            const res = await callGas({ action: 'register', data: { userId: userProfile.userId, ...item } });
+            alert(res.status === 'duplicate' ? "既に登録されています" : "登録しました");
         }
 
         async function loadMyList() {
             const res = await fetch(`${GAS_URL}?action=getList&userId=${userProfile.userId}`);
-            const list = await res.json();
+            cachedList = await res.json();
+            renderList();
+        }
+
+        function renderList() {
+            const sortOrder = document.getElementById('sort-order').value;
             const container = document.getElementById('my-list');
-            container.innerHTML = list.map(item => {
+            
+            // 今日の日付 (比較用: YYYYMMDD形式に変換)
+            const now = new Date();
+            const todayNum = parseInt(now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0'));
+
+            let sortedList = [...cachedList];
+
+            // 日付を数値(YYYYMMDD)化する補助関数 ("頃"を除去)
+            const parseDate = (dateStr) => {
+                if (!dateStr) return 99999999;
+                const cleanStr = dateStr.replace(/[^0-9]/g, ""); // 数字以外(頃など)を全削除
+                return cleanStr.length === 8 ? parseInt(cleanStr) : 99999999;
+            };
+
+            if (sortOrder === 'release') {
+                sortedList.sort((a, b) => {
+                    const dateA = parseDate(a.sales_date);
+                    const dateB = parseDate(b.sales_date);
+
+                    const isAFuture = dateA >= todayNum;
+                    const isBFuture = dateB >= todayNum;
+
+                    // 未来 vs 過去: 未来を優先
+                    if (isAFuture && !isBFuture) return -1;
+                    if (!isAFuture && isBFuture) return 1;
+
+                    if (isAFuture) {
+                        // 未来同士: 今日から近い順 (昇順)
+                        return dateA - dateB;
+                    } else {
+                        // 過去同士: 今日から近い順 (降順)
+                        return dateB - dateA;
+                    }
+                });
+            } else if (sortOrder === 'name') {
+                sortedList.sort((a, b) => a.title_key.localeCompare(b.title_key, 'ja'));
+            } else if (sortOrder === 'newest') {
+                sortedList.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            }
+
+            container.innerHTML = sortedList.map(item => {
                 const encodedTitle = encodeURIComponent(item.title_key);
-                // リンク生成
                 const amazonUrl = `https://www.amazon.co.jp/gp/search?keywords=${item.isbn || encodedTitle}&tag=${AMAZON_ID}`;
                 const rakutenUrl = `https://hb.afl.rakuten.co.jp/hgc/share/01/${RAKUTEN_ID}?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F${encodedTitle}%2F`;
 
@@ -130,12 +177,10 @@
                         <p><strong>${item.title_key}</strong></p>
                         <p class="is-size-7">発売日: ${item.sales_date || '不明'}</p>
                         <p class="is-size-7">所有: ${item.last_purchased_vol || 0}巻</p>
-                        
                         <div class="button-group">
                             <a href="${amazonUrl}" target="_blank" class="button is-small is-warning has-text-weight-bold">Amazon</a>
                             <a href="${rakutenUrl}" target="_blank" class="button is-small is-danger has-text-weight-bold">楽天</a>
                         </div>
-
                         <div class="button-group mt-2">
                             <button class="button is-small is-success" onclick="markAsPurchased('${item.id}')">巻数更新</button>
                             <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
@@ -154,7 +199,7 @@
         }
 
         async function markAsPurchased(id) {
-            const vol = prompt("何巻まで購入しましたか？（数字のみ）");
+            const vol = prompt("何巻まで購入しましたか？");
             if (vol !== null && !isNaN(vol) && vol !== "") {
                 await callGas({ action: 'purchase', id: id, vol: parseInt(vol) });
                 loadMyList();
