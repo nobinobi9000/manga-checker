@@ -14,153 +14,134 @@
         .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 1000; justify-content: center; align-items: center; }
         .tab-content { display: none; }
         .tab-content.is-active { display: block; }
+        /* ボタンの間隔調整 */
+        .button-group { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <div id="loading" class="loading-overlay"><p>処理中...</p></div>
+    <div id="loading" class="loading-overlay">
+        <button class="button is-loading is-large is-ghost">Loading</button>
+    </div>
+
     <section class="section">
         <div class="container">
-            <h1 class="title is-4">マンガ新刊チェッカー</h1>
             <div class="tabs is-centered is-boxed">
                 <ul>
-                    <li id="tab-search-btn" class="is-active"><a onclick="showTab('search')">マンガ検索</a></li>
-                    <li id="tab-list-btn"><a onclick="showTab('list')">マイリスト</a></li>
+                    <li id="tab-search" class="is-active"><a onclick="switchTab('search')">検索・登録</a></li>
+                    <li id="tab-list"><a onclick="switchTab('list')">登録リスト</a></li>
                 </ul>
             </div>
 
-            <div id="tab-search" class="tab-content is-active">
+            <div id="content-search" class="tab-content is-active">
                 <div class="field has-addons">
                     <div class="control is-expanded">
-                        <input id="search-input" class="input" type="text" placeholder="作品名を入力">
+                        <input id="title" class="input" type="text" placeholder="マンガのタイトルを入力">
                     </div>
                     <div class="control">
-                        <button class="button is-primary" onclick="search()">検索</button>
+                        <button class="button is-link" onclick="search()">検索</button>
                     </div>
                 </div>
                 <div id="search-results"></div>
             </div>
 
-            <div id="tab-list" class="tab-content">
-                <div class="is-flex is-justify-content-space-between is-align-items-center mb-3">
-                    <h2 class="subtitle is-5 mb-0">登録済みリスト</h2>
-                    <div class="select is-small">
-                        <select id="sort-order" onchange="loadMyList()">
-                            <option value="created_at">登録順</option>
-                            <option value="title_key">名前順</option>
-                            <option value="sales_date">発売日が近い順</option>
-                        </select>
-                    </div>
-                </div>
+            <div id="content-list" class="tab-content">
                 <div id="my-list"></div>
             </div>
         </div>
     </section>
 
     <script>
-        const LIFF_ID = "2008959676-hW7rllQ0";
-        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0gQWC81jZ1tEKx6oZVk3Fd0Z6EveuRDzSBYNMZ-tIm0lYxceWFiR78PMt5MUNF9FJcQ/exec";
-        let userId = "";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbw0gQWC81jZ1tEKx6oZVk3Fd0Z6EveuRDzSBYNMZ-tIm0lYxceWFiR78PMt5MUNF9FJcQ/exec"; // ★GASのURLをここに！
+        let userProfile = null;
 
-        function showTab(tabName) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('is-active'));
-            document.querySelectorAll('.tabs li').forEach(el => el.classList.remove('is-active'));
-            document.getElementById('tab-' + tabName).classList.add('is-active');
-            document.getElementById('tab-' + tabName + '-btn').classList.add('is-active');
-            if (tabName === 'list') loadMyList();
-        }
+        // アフィリエイトID設定
+        const AMAZON_ID = "nobinobi9000-22";
+        const RAKUTEN_ID = "501ad036.07885280.501ad037.06e37a49";
 
         async function init() {
-            await liff.init({ liffId: LIFF_ID });
+            await liff.init({ liffId: "2008959676-hW7rllQ0" }); // ★LIFF IDをここに！
             if (!liff.isLoggedIn()) {
                 liff.login();
             } else {
-                userId = liff.getContext().userId;
+                userProfile = await liff.getProfile();
                 loadMyList();
             }
         }
 
-        async function callGas(params, method = 'POST') {
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('is-active'));
+            document.querySelectorAll('.tabs li').forEach(el => el.classList.remove('is-active'));
+            document.getElementById(`content-${tab}`).classList.add('is-active');
+            document.getElementById(`tab-${tab}`).classList.add('is-active');
+            if (tab === 'list') loadMyList();
+        }
+
+        async function callGas(payload) {
             document.getElementById('loading').style.display = 'flex';
-            try {
-                let url = GAS_API_URL;
-                let options = { method: method };
-                if (method === 'POST') {
-                    options.body = JSON.stringify(params);
-                } else {
-                    const query = new URLSearchParams(params).toString();
-                    url += `?${query}`;
-                }
-                const res = await fetch(url, options);
-                return await res.json();
-            } finally {
-                document.getElementById('loading').style.display = 'none';
-            }
+            const res = await fetch(GAS_URL, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            document.getElementById('loading').style.display = 'none';
+            return await res.json();
         }
 
         async function search() {
-            const title = document.getElementById('search-input').value;
+            const title = document.getElementById('title').value;
             const results = await callGas({ action: 'search', title: title });
             const container = document.getElementById('search-results');
-            container.innerHTML = results.map(item => {
-                const img = item.imageUrl ? item.imageUrl.replace('http://', 'https://') : '';
-                return `
+            container.innerHTML = results.map(item => `
                 <div class="manga-card">
-                    ${img ? `<img src="${img}" class="manga-image">` : ''}
+                    <img src="${item.imageUrl}" class="manga-image">
                     <div class="manga-info">
-                        <p><strong>${item.title}</strong> (${item.author})</p>
-                        <p class="is-size-7 has-text-danger">発売日: ${item.salesDate || '不明'}</p>
-                        <button class="button is-small is-link mt-2" onclick='register(${JSON.stringify(item)})'>追加</button>
+                        <p><strong>${item.title}</strong></p>
+                        <p class="is-size-7">${item.author} / ${item.publisher}</p>
+                        <p class="is-size-7">発売日: ${item.salesDate}</p>
+                        <button class="button is-small is-link mt-2" onclick='register(${JSON.stringify(item)})'>登録</button>
                     </div>
-                </div>`;
-            }).join('');
+                </div>
+            `).join('');
         }
 
         async function register(item) {
-            const res = await callGas({ action: 'register', data: { ...item, userId: userId } });
-            if (res.status === "duplicate") {
-                alert("【マンガ新刊チェッカー】\nこの作品はすでにマイリストに登録されています。");
+            const data = { userId: userProfile.userId, ...item };
+            const res = await callGas({ action: 'register', data: data });
+            if (res.status === 'duplicate') {
+                alert("既に登録されています");
             } else {
-                showTab('list');
+                alert("登録しました");
             }
         }
 
         async function loadMyList() {
-            let list = await callGas({ action: 'getList', userId: userId }, 'GET');
-            const sortVal = document.getElementById('sort-order').value;
-            
-            // 現在の日付を取得 (YYYYMMDD形式)
-            const now = new Date();
-            const nowStr = now.getFullYear() + ('0' + (now.getMonth() + 1)).slice(-2) + ('0' + now.getDate()).slice(-2);
-
-            if (sortVal === 'title_key') {
-                list.sort((a, b) => a.title_key.localeCompare(b.title_key, 'ja'));
-            } else if (sortVal === 'sales_date') {
-                list.sort((a, b) => {
-                    const dateA = (a.sales_date || "0").replace(/[^0-9]/g, "");
-                    const dateB = (b.sales_date || "0").replace(/[^0-9]/g, "");
-                    // 未来の日付を優先
-                    if (dateA >= nowStr && dateB < nowStr) return -1;
-                    if (dateA < nowStr && dateB >= nowStr) return 1;
-                    return dateA.localeCompare(dateB);
-                });
-            }
-
+            const res = await fetch(`${GAS_URL}?action=getList&userId=${userProfile.userId}`);
+            const list = await res.json();
             const container = document.getElementById('my-list');
             container.innerHTML = list.map(item => {
-                const img = item.image_url ? item.image_url.replace('http://', 'https://') : '';
+                const encodedTitle = encodeURIComponent(item.title_key);
+                // リンク生成
+                const amazonUrl = `https://www.amazon.co.jp/gp/search?keywords=${item.isbn || encodedTitle}&tag=${AMAZON_ID}`;
+                const rakutenUrl = `https://hb.afl.rakuten.co.jp/hgc/share/01/${RAKUTEN_ID}?pc=https%3A%2F%2Fsearch.rakuten.co.jp%2Fsearch%2Fmall%2F${encodedTitle}%2F`;
+
                 return `
                 <div class="manga-card ${item.is_reserved ? 'is-reserved' : ''}">
-                    ${img ? `<img src="${img}" class="manga-image">` : ''}
+                    <img src="${item.image_url}" class="manga-image">
                     <div class="manga-info">
                         <p><strong>${item.title_key}</strong></p>
                         <p class="is-size-7">発売日: ${item.sales_date || '不明'}</p>
                         <p class="is-size-7">所有: ${item.last_purchased_vol || 0}巻</p>
-                        <div class="mt-2">
-                            <button class="button is-small is-success" onclick="markAsPurchased('${item.id}')">所有巻数入力</button>
+                        
+                        <div class="button-group">
+                            <a href="${amazonUrl}" target="_blank" class="button is-small is-warning has-text-weight-bold">Amazon</a>
+                            <a href="${rakutenUrl}" target="_blank" class="button is-small is-danger has-text-weight-bold">楽天</a>
+                        </div>
+
+                        <div class="button-group mt-2">
+                            <button class="button is-small is-success" onclick="markAsPurchased('${item.id}')">巻数更新</button>
                             <button class="button is-small" onclick="toggle('${item.id}', ${item.is_reserved})">
-                                ${item.is_reserved ? '予約済みを解除' : '予約済みにする'}
+                                ${item.is_reserved ? '予約解除' : '予約済み'}
                             </button>
-                            <button class="button is-small is-danger" onclick="remove('${item.id}')">削除</button>
+                            <button class="button is-small is-light" onclick="remove('${item.id}')">削除</button>
                         </div>
                     </div>
                 </div>`;
@@ -173,7 +154,7 @@
         }
 
         async function markAsPurchased(id) {
-            const vol = prompt("何巻まで購入しましたか？（数字のみ入力）");
+            const vol = prompt("何巻まで購入しましたか？（数字のみ）");
             if (vol !== null && !isNaN(vol) && vol !== "") {
                 await callGas({ action: 'purchase', id: id, vol: parseInt(vol) });
                 loadMyList();
