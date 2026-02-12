@@ -9,6 +9,7 @@ LINE_ACCESS_TOKEN = os.environ.get('LINE_ACCESS_TOKEN', '').strip()
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip()
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '').strip()
 AMAZON_TRACKING_ID = "nobinobi9000-22"
+RAKUTEN_AFFILIATE_ID = os.environ.get('RAKUTEN_AFFILIATE_ID', '').strip()  # 楽天アフィリエイトID
 
 def get_supabase_data():
     """Supabaseから全ユーザーのマンガリストを取得"""
@@ -96,7 +97,11 @@ def check_new_manga():
                 should_notify = notify_type and (is_data_updated or last_notified != today_num)
                 
                 if should_notify:
-                    affiliate_url = f"https://www.amazon.co.jp/s?k={new_isbn}&tag={AMAZON_TRACKING_ID}"
+                    # Amazonアフィリエイトリンク
+                    amazon_url = f"https://www.amazon.co.jp/s?k={new_isbn}&tag={AMAZON_TRACKING_ID}"
+                    
+                    # 楽天アフィリエイトリンク
+                    rakuten_url = f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/?pc=https%3A%2F%2Fbooks.rakuten.co.jp%2Frb%2F{new_isbn}%2F" if RAKUTEN_AFFILIATE_ID else f"https://books.rakuten.co.jp/rb/{new_isbn}/"
                     
                     # 変更内容を表示（更新時のみ）
                     update_info = ""
@@ -109,7 +114,7 @@ def check_new_manga():
                         if changes:
                             update_info = "\n\n📝 変更内容:\n" + "\n".join(changes)
                     
-                    message_text = f"{notify_type}\n{found['title']}\n発売日: {raw_date}{update_info}\n\nAmazonで予約・購入👇\n{affiliate_url}"
+                    message_text = f"{notify_type}\n{found['title']}\n発売日: {raw_date}{update_info}\n\n📚 予約・購入はこちら👇\n楽天: {rakuten_url}\nAmazon: {amazon_url}"
                     
                     # 画像付きメッセージで送信（サムネイルサイズに調整）
                     if send_line_push_with_image(user_id, message_text, image_url):
