@@ -1,6 +1,6 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import time
 
 # --- 設定（GitHub Secretsに登録するもの） ---
@@ -33,9 +33,11 @@ def update_supabase_data(row_id, update_data):
     requests.patch(url, headers=headers, json=update_data)
 
 def check_new_manga():
-    manga_list = get_supabase_data()
-    today = datetime.now()
-    today_num = today.strftime('%Y%m%d')
+    jst = timezone(timedelta(hours=+9))
+    now_jst = datetime.now(jst)
+    today_num = now_jst.strftime('%Y%m%d')
+    # 比較用に時間を切り捨てた「今日」のオブジェクト
+    today_dt = datetime(now_jst.year, now_jst.month, now_jst.day)
     
     # ユーザーごとに通知をまとめる
     notifications = {}
@@ -87,7 +89,8 @@ def check_new_manga():
                 
                 # 通知判定ルール（is_reserved=falseの場合のみ）
                 notify_type = None
-                if days_left == 14: notify_type = "📅【14日前】"
+                if days_left == 30:   notify_type = "📅【30日前】"
+                elif days_left == 14: notify_type = "📅【14日前】"
                 elif days_left == 7:  notify_type = "📅【7日前】"
                 elif days_left == 0:  notify_type = "🔥【本日発売】"
 
@@ -96,6 +99,8 @@ def check_new_manga():
                 
                 if should_notify:
                     # 通知データを収集（後でカルーセル化）
+                    # 通知送信後にDBを更新するようにロジックを移動
+                if notify_type and last_notified != today_num:
                     if user_id not in notifications:
                         notifications[user_id] = []
                     
@@ -129,6 +134,12 @@ def check_new_manga():
     # すべてのマンガをチェックした後、ユーザーごとにカルーセル通知
     for user_id, items in notifications.items():
         if send_line_carousel(user_id, items):
+            for item in items:
+                update_supabase_data(item['row_id'], {
+                    "isbn": item['isbn'],
+                    "sales_date": item['sales_date'],
+                    "last_notified": today_num
+                })
             print(f"✅ カルーセル通知送信: {user_id} ({len(items)}件)")
 
 def send_line_carousel(user_id, items):
@@ -235,3 +246,4 @@ if __name__ == "__main__":
     print(f"🚀 マンガチェック開始: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     check_new_manga()
     print(f"✨ マンガチェック完了: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
