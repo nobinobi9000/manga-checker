@@ -1,27 +1,24 @@
 import os
 import requests
-from datetime import datetime, timedelta, timezone
+import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-# =========================
+# ==============================
 # 環境変数
-# =========================
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# ==============================
 RAKUTEN_APP_ID = os.getenv("RAKUTEN_APP_ID")
 RAKUTEN_AFFILIATE_ID = os.getenv("RAKUTEN_AFFILIATE_ID")
 LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-JST = timezone(timedelta(hours=9))
+JST = ZoneInfo("Asia/Tokyo")
 
-# =========================
-# 共通
-# =========================
-def parse_sales_date(date_str):
-    try:
-        return datetime.strptime(date_str, "%Y年%m月%d日").date()
-    except:
-        return None
 
+# ==============================
+# Supabase
+# ==============================
 def get_supabase_data():
     url = f"{SUPABASE_URL}/rest/v1/manga_list?select=*"
     headers = {
@@ -29,29 +26,62 @@ def get_supabase_data():
         "Authorization": f"Bearer {SUPABASE_KEY}"
     }
     res = requests.get(url, headers=headers)
+    res.raise_for_status()
     return res.json()
 
-def patch_supabase(record_id, data):
-    url = f"{SUPABASE_URL}/rest/v1/manga_list?id=eq.{record_id}"
+
+def update_supabase(id, payload):
+    url = f"{SUPABASE_URL}/rest/v1/manga_list?id=eq.{id}"
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "return=minimal"
     }
-    requests.patch(url, headers=headers, json=data)
+    requests.patch(url, headers=headers, json=payload)
 
-# =========================
+
+# ==============================
+# 巻数抽出
+# ==============================
+def extract_vol_from_title(title):
+    if not title:
+        return None
+
+    z2h = str.maketrans("０１２３４５６７８９", "0123456789")
+    title = title.translate(z2h)
+
+    patterns = [
+        r'\((\d+)\)',
+        r'第\s*(\d+)\s*巻',
+        r'(\d+)\s*巻',
+        r'\s(\d+)\b',
+        r'(\d+)$'
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, title)
+        if m:
+            return int(m.group(1))
+
+    return None
+
+
+def is_special_edition(title):
+    keywords = ["特装", "限定", "豪華", "小冊子", "同梱", "DVD", "Blu-ray"]
+    return any(k in title for k in keywords)
+
+
+# ==============================
 # 楽天API
-# =========================
-def fetch_latest_info(title):
+# ==============================
+def fetch_latest_info(title, last_vol):
     url = "https://app.rakuten.co.jp/services/api/BooksBook/Search/20170404"
     params = {
         "applicationId": RAKUTEN_APP_ID,
         "affiliateId": RAKUTEN_AFFILIATE_ID,
         "title": title,
-        "format": "json",
-        "sort": "-releaseDate"
+        "format": "json"
     }
 
     res = requests.get(url, params=params)
@@ -60,27 +90,42 @@ def fetch_latest_info(title):
     if not data.get("Items"):
         return None
 
-    # 発売日が一番新しいものを取得
-    latest_item = max(
-        data["Items"],
-        key=lambda x: parse_sales_date(x["Item"].get("salesDate", "")) or datetime.min.date()
-    )["Item"]
+    candidates = []
 
-    return {
-        "isbn": latest_item.get("isbn"),
-        "sales_date": latest_item.get("salesDate"),
-        "image_url": latest_item.get("largeImageUrl"),
-    }
+    for item in data["Items"]:
+        book = item["Item"]
+        book_title = book.get("title", "")
 
-# =========================
-# LINE送信
-# =========================
-def send_text(user_id, message):
+        if is_special_edition(book_title):
+            continue
+
+        vol = extract_vol_from_title(book_title)
+        if not vol:
+            continue
+
+        if vol > last_vol:
+            candidates.append({
+                "vol": vol,
+                "isbn": book.get("isbn"),
+                "sales_date": book.get("salesDate"),
+                "image_url": book.get("largeImageUrl")
+            })
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=lambda x: x["vol"])
+
+
+# ==============================
+# LINE通知
+# ==============================
+def send_line_message(user_id, message):
+    url = "https://api.line.me/v2/bot/message/push"
     headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
+        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
     }
-
     payload = {
         "to": user_id,
         "messages": [{
@@ -88,146 +133,87 @@ def send_text(user_id, message):
             "text": message
         }]
     }
+    requests.post(url, headers=headers, json=payload)
 
-    requests.post("https://api.line.me/v2/bot/message/push", headers=headers, json=payload)
 
-def send_carousel(user_id, items):
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
-    }
-
-    columns = []
-    for item in items[:10]:  # 最大10件
-        columns.append({
-            "thumbnailImageUrl": item["image_url"],
-            "title": item["title"][:40],
-            "text": f"発売日: {item['sales_date']}"[:60],
-            "actions": [{
-                "type": "message",
-                "label": "予約した",
-                "text": f"予約済み:{item['title']}"
-            }]
-        })
-
-    payload = {
-        "to": user_id,
-        "messages": [{
-            "type": "template",
-            "altText": "発売日が近い作品があります",
-            "template": {
-                "type": "carousel",
-                "columns": columns
-            }
-        }]
-    }
-
-    requests.post("https://api.line.me/v2/bot/message/push", headers=headers, json=payload)
-
-# =========================
+# ==============================
 # メイン処理
-# =========================
+# ==============================
 def check_new_manga():
-    now = datetime.now(JST)
-    today = now.date()
-
-    print(f"🚀 チェック開始: {now}")
+    print("🚀 マンガチェック開始:", datetime.now(JST))
 
     manga_list = get_supabase_data()
+    today = datetime.now(JST).date()
 
-    new_release_notifications = []
-    countdown_notifications = []
+    countdown_list = []
 
-    for item in manga_list:
-        record_id = item["id"]
-        user_id = item["user_id"]
-        title = item["title_key"]
-        current_isbn = item.get("isbn")
-        is_reserved = item.get("is_reserved", False)
+    for manga in manga_list:
+        id = manga["id"]
+        user_id = manga["user_id"]
+        title = manga["title_key"]
+        last_vol = manga.get("last_purchased_vol", 0)
+        is_reserved = manga.get("is_reserved", False)
+        sales_date_str = manga.get("sales_date")
 
-        # =========================
-        # 最新情報取得
-        # =========================
-        latest = fetch_latest_info(title)
-        if not latest:
-            continue
+        # ---------------------------
+        # 新刊検知
+        # ---------------------------
+        latest = fetch_latest_info(title, last_vol)
 
-        latest_isbn = latest["isbn"]
+        if latest:
+            print("📘 新刊発見:", title, latest["vol"])
 
-        # =========================
-        # 🆕 新刊検知
-        # =========================
-        if latest_isbn and latest_isbn != current_isbn:
-            print(f"🆕 新刊検知: {title}")
-
-            patch_supabase(record_id, {
+            update_supabase(id, {
                 "isbn": latest["isbn"],
                 "sales_date": latest["sales_date"],
                 "image_url": latest["image_url"],
-                "is_reserved": False,
-                "last_notified": None
+                "is_reserved": False
             })
 
-            new_release_notifications.append({
-                "user_id": user_id,
-                "title": title,
-                "sales_date": latest["sales_date"],
-                "image_url": latest["image_url"]
-            })
+            send_line_message(
+                user_id,
+                f"📢 新刊発見！\n{title} {latest['vol']}巻\n発売日: {latest['sales_date']}"
+            )
 
-            continue
+        # ---------------------------
+        # 発売日処理
+        # ---------------------------
+        if sales_date_str:
+            try:
+                sales_date = datetime.strptime(
+                    sales_date_str.replace("年", "-").replace("月", "-").replace("日", ""),
+                    "%Y-%m-%d"
+                ).date()
 
-        # =========================
-        # 発売日取得
-        # =========================
-        release_date = parse_sales_date(item.get("sales_date", ""))
-        if not release_date:
-            continue
+                days_left = (sales_date - today).days
 
-        diff = (release_date - today).days
+                # 発売日翌日 → 自動巻数更新
+                if days_left == -1:
+                    update_supabase(id, {
+                        "last_purchased_vol": last_vol + 1
+                    })
 
-        # =========================
-        # 発売日翌日に予約フラグリセット
-        # =========================
-        if today > release_date and is_reserved:
-            patch_supabase(record_id, {"is_reserved": False})
-            continue
+                # 予約済みは通知しない
+                if is_reserved:
+                    continue
 
-        # =========================
-        # ⏳ カウントダウン通知
-        # =========================
-        if diff in [30, 14, 7, 0] and not is_reserved:
-            countdown_notifications.append({
-                "user_id": user_id,
-                "title": title,
-                "sales_date": item["sales_date"],
-                "image_url": item.get("image_url")
-            })
+                # カウントダウン
+                if days_left in [7, 1, 0]:
+                    countdown_list.append(
+                        f"{title}\nあと{days_left}日"
+                    )
 
-    # =========================
-    # 🆕 新刊通知（単独）
-    # =========================
-    for notice in new_release_notifications:
-        message = f"""🆕 新刊発売決定！
+            except:
+                pass
 
-{notice['title']}
-発売日: {notice['sales_date']}
+    # まとめ通知
+    if countdown_list:
+        send_line_message(
+            manga_list[0]["user_id"],
+            "📅 発売日カウントダウン\n\n" + "\n\n".join(countdown_list)
+        )
 
-予約を忘れていませんか？📚
-"""
-        send_text(notice["user_id"], message)
-
-    # =========================
-    # ⏳ カウントダウン（ユーザーごとにまとめる）
-    # =========================
-    grouped = {}
-    for item in countdown_notifications:
-        grouped.setdefault(item["user_id"], []).append(item)
-
-    for user_id, items in grouped.items():
-        send_carousel(user_id, items)
-
-    print(f"✨ チェック完了: {datetime.now(JST)}")
+    print("✨ マンガチェック完了:", datetime.now(JST))
 
 
 if __name__ == "__main__":
