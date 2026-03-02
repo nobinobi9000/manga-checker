@@ -1,293 +1,207 @@
 import os
 import requests
-import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# ==============================
+# =============================
 # 環境変数
-# ==============================
-RAKUTEN_APP_ID = os.getenv("RAKUTEN_APP_ID")
-RAKUTEN_AFFILIATE_ID = os.getenv("RAKUTEN_AFFILIATE_ID")
-LINE_ACCESS_TOKEN = os.getenv("LINE_ACCESS_TOKEN")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-ADMIN_LINE_USER_ID = os.getenv("ADMIN_LINE_USER_ID")
+# =============================
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+LINE_ACCESS_TOKEN = os.environ["LINE_ACCESS_TOKEN"]
+ADMIN_LINE_USER_ID = os.environ["ADMIN_LINE_USER_ID"]
+RAKUTEN_APP_ID = os.environ["RAKUTEN_APP_ID"]
+RAKUTEN_AFFILIATE_ID = os.environ["RAKUTEN_AFFILIATE_ID"]
 
 JST = ZoneInfo("Asia/Tokyo")
 
+# =============================
+# Supabase 共通
+# =============================
 
-# ==============================
-# Supabase操作
-# ==============================
-def get_supabase_data():
-    url = f"{SUPABASE_URL}/rest/v1/manga_list?select=*"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}"
-    }
-    res = requests.get(url, headers=headers)
-    res.raise_for_status()
-    return res.json()
-
-
-def update_supabase(id, payload):
-    url = f"{SUPABASE_URL}/rest/v1/manga_list?id=eq.{id}"
-    headers = {
+def supabase_headers():
+    return {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
+        "Content-Type": "application/json"
     }
-    requests.patch(url, headers=headers, json=payload)
 
+def get_manga_list():
+    url = f"{SUPABASE_URL}/rest/v1/manga_list?select=*"
+    res = requests.get(url, headers=supabase_headers())
+    return res.json()
 
-# ==============================
-# ユーティリティ
-# ==============================
-def normalize_image_url(url):
-    if not url or "noimage" in url:
-        return None
-    return url.replace("_ex=200x200", "_ex=600x600")
+def update_manga(id, data):
+    url = f"{SUPABASE_URL}/rest/v1/manga_list?id=eq.{id}"
+    requests.patch(url, headers=supabase_headers(), json=data)
 
+# =============================
+# 楽天API検索
+# =============================
 
-def extract_vol_from_title(title):
-    if not title:
-        return None
-
-    z2h = str.maketrans("０１２３４５６７８９", "0123456789")
-    title = title.translate(z2h)
-
-    patterns = [
-        r'\((\d+)\)',
-        r'第\s*(\d+)\s*巻',
-        r'(\d+)\s*巻',
-        r'\s(\d+)\b',
-        r'(\d+)$'
-    ]
-
-    for pattern in patterns:
-        m = re.search(pattern, title)
-        if m:
-            return int(m.group(1))
-
-    return None
-
-
-def is_special_edition(title):
-    keywords = ["特装", "限定", "豪華", "小冊子", "同梱", "DVD", "Blu-ray"]
-    return any(k in title for k in keywords)
-
-
-# ==============================
-# 楽天API
-# ==============================
-def fetch_latest_info(title, last_vol):
+def rakuten_search(title):
     url = "https://app.rakuten.co.jp/services/api/BooksBook/Search/20170404"
     params = {
         "applicationId": RAKUTEN_APP_ID,
-        "affiliateId": RAKUTEN_AFFILIATE_ID,
         "title": title,
         "format": "json"
     }
-
     res = requests.get(url, params=params)
     data = res.json()
+    if data["count"] > 0:
+        return data["Items"][0]["Item"]
+    return None
 
-    if not data.get("Items"):
-        return None
+# =============================
+# アフィリエイトURL生成
+# =============================
 
-    candidates = []
+def build_amazon_url(isbn):
+    return f"https://www.amazon.co.jp/dp/{isbn}/?tag=nobinobi9000-22"
 
-    for item in data["Items"]:
-        book = item["Item"]
-        book_title = book.get("title", "")
+def build_rakuten_url(item_url):
+    return f"https://hb.afl.rakuten.co.jp/hgc/{RAKUTEN_AFFILIATE_ID}/?pc={item_url}"
 
-        if is_special_edition(book_title):
-            continue
-
-        vol = extract_vol_from_title(book_title)
-        if not vol:
-            continue
-
-        if vol > last_vol:
-            candidates.append({
-                "vol": vol,
-                "isbn": book.get("isbn"),
-                "sales_date": book.get("salesDate"),
-                "image_url": book.get("largeImageUrl"),
-                "item_url": book.get("itemUrl")
-            })
-
-    if not candidates:
-        return None
-
-    return max(candidates, key=lambda x: x["vol"])
-
-
-# ==============================
+# =============================
 # LINE通知
-# ==============================
-def push_line(payload):
+# =============================
+
+def push_line(messages):
+    headers = {
+        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "to": ADMIN_LINE_USER_ID,
+        "messages": messages
+    }
     requests.post(
         "https://api.line.me/v2/bot/message/push",
-        headers={
-            "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
-            "Content-Type": "application/json"
-        },
-        json=payload
+        headers=headers,
+        json=data
     )
 
+def build_single_notification(item):
+    amazon_url = build_amazon_url(item["isbn"])
+    rakuten_url = build_rakuten_url(item["itemUrl"])
 
-def send_error(message):
-    if not ADMIN_LINE_USER_ID:
-        return
-    push_line({
-        "to": ADMIN_LINE_USER_ID,
-        "messages": [{
-            "type": "text",
-            "text": f"🚨 エラー発生\n{message}"
-        }]
-    })
-
-
-def send_new_release(user_id, title, vol, sales_date, image_url, item_url):
-    image_url = normalize_image_url(image_url)
-
-    bubble = {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "sm",
-            "contents": [
-                {"type": "text", "text": title, "weight": "bold", "wrap": True},
-                {"type": "text", "text": f"{vol}巻"},
-                {"type": "text", "text": f"発売日: {sales_date}"}
-            ]
-        },
-        "footer": {
-            "type": "box",
-            "layout": "vertical",
-            "spacing": "sm",
-            "contents": [
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "action": {
-                        "type": "uri",
-                        "label": "楽天で見る",
-                        "uri": item_url
-                    }
-                }
-            ]
-        }
-    }
-
-    if image_url:
-        bubble["hero"] = {
-            "type": "image",
-            "url": image_url,
-            "size": "full",
-            "aspectRatio": "1:1",
-            "aspectMode": "cover"
-        }
-
-    push_line({
-        "to": user_id,
-        "messages": [{
-            "type": "flex",
-            "altText": "新刊発見",
-            "contents": bubble
-        }]
-    })
-
-
-def send_countdown_carousel(user_id, items):
-    bubbles = []
-
-    for item in items:
-        image_url = normalize_image_url(item["image_url"])
-
-        bubble = {
+    return {
+        "type": "flex",
+        "altText": f"{item['title']} 新刊発見！",
+        "contents": {
             "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "sm",
-                "contents": [
-                    {"type": "text", "text": item["title"], "weight": "bold", "wrap": True},
-                    {"type": "text", "text": f"あと{item['days']}日", "color": "#FF5555"},
-                    {"type": "text", "text": f"発売日: {item['sales_date']}"}
-                ]
-            }
-        }
-
-        if image_url:
-            bubble["hero"] = {
+            "hero": {
                 "type": "image",
-                "url": image_url,
+                "url": item["largeImageUrl"],
                 "size": "full",
                 "aspectRatio": "1:1",
                 "aspectMode": "cover"
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "text", "text": item["title"], "weight": "bold", "wrap": True},
+                    {"type": "text", "text": f"発売日: {item['salesDate']}", "color": "#FF5551"}
+                ]
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#FF9900",
+                        "action": {
+                            "type": "uri",
+                            "label": "Amazonで予約",
+                            "uri": amazon_url
+                        }
+                    },
+                    {
+                        "type": "button",
+                        "style": "secondary",
+                        "action": {
+                            "type": "uri",
+                            "label": "楽天で予約",
+                            "uri": rakuten_url
+                        }
+                    }
+                ]
             }
+        }
+    }
 
-        bubbles.append(bubble)
-
-    push_line({
-        "to": user_id,
-        "messages": [{
-            "type": "flex",
-            "altText": "発売日カウントダウン",
-            "contents": {
-                "type": "carousel",
-                "contents": bubbles
-            }
-        }]
-    })
-
-
-# ==============================
+# =============================
 # メイン処理
-# ==============================
-def check_new_manga():
+# =============================
+
+def check_manga():
     print("🚀 マンガチェック開始:", datetime.now(JST))
 
-    manga_list = get_supabase_data()
+    manga_list = get_manga_list()
     today = datetime.now(JST).date()
 
+    new_release_notifications = []
+    countdown_notifications = []
+
     for manga in manga_list:
-        id = manga["id"]
-        user_id = manga["user_id"]
-        title = manga["title_key"]
-        last_vol = manga.get("last_purchased_vol", 0)
-        is_reserved = manga.get("is_reserved", False)
+        if manga["is_reserved"]:
+            continue
 
-        latest = fetch_latest_info(title, last_vol)
+        rakuten = rakuten_search(manga["title_key"])
+        if not rakuten:
+            continue
 
-        if latest:
-            update_supabase(id, {
-                "isbn": latest["isbn"],
-                "sales_date": latest["sales_date"],
-                "image_url": latest["image_url"],
+        new_isbn = rakuten["isbn"]
+        new_date_str = rakuten["salesDate"]
+        new_date = datetime.strptime(new_date_str, "%Y年%m月%d日").date()
+
+        # 発売日過去はスキップ
+        if new_date < today:
+            continue
+
+        # 新刊検知
+        if new_isbn != manga["isbn"]:
+            update_manga(manga["id"], {
+                "isbn": new_isbn,
+                "sales_date": new_date_str,
+                "image_url": rakuten["largeImageUrl"],
                 "is_reserved": False
             })
 
-            send_new_release(
-                user_id,
-                title,
-                latest["vol"],
-                latest["sales_date"],
-                latest["image_url"],
-                latest["item_url"]
+            new_release_notifications.append(
+                build_single_notification(rakuten)
+            )
+            continue
+
+        # カウントダウン
+        days_left = (new_date - today).days
+        if days_left in [30, 14, 7, 0]:
+            countdown_notifications.append(
+                build_single_notification(rakuten)
             )
 
-    print("✨ マンガチェック完了:", datetime.now(JST))
+    # 新刊通知（単独）
+    for msg in new_release_notifications:
+        push_line([msg])
+
+    # カウントダウン（まとめてカルーセル）
+    if countdown_notifications:
+        push_line([
+            {
+                "type": "flex",
+                "altText": "発売日が近づいています！",
+                "contents": {
+                    "type": "carousel",
+                    "contents": [msg["contents"] for msg in countdown_notifications]
+                }
+            }
+        ])
+
+    print("✨ 完了:", datetime.now(JST))
 
 
 if __name__ == "__main__":
-    try:
-        check_new_manga()
-    except Exception as e:
-        send_error(str(e))
-        raise
+    check_manga()
